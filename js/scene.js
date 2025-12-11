@@ -1,13 +1,11 @@
 import * as THREE from 'three';
 import { WORKSPACE_BOUNDS } from './constants.js';
-import { frameWorkspace } from './camera-utils.js';
 
 export function initScene(container, requestRender) {
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x222222);
 
     // Professional camera setup with proper FOV and limits
-    // Ensure container has dimensions - use window size as fallback
     const width = container.clientWidth || window.innerWidth || 800;
     const height = container.clientHeight || window.innerHeight || 600;
     
@@ -20,25 +18,23 @@ export function initScene(container, requestRender) {
 
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(width, height);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // Cap pixel ratio for performance
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap; // Soft shadows for realism
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     container.appendChild(renderer.domElement);
 
-    // Adaptive grid helper with visibility toggle support
-    // Grid aligned with workspace boundaries
+    // Grid helper aligned with workspace boundaries
     const gridHelper = new THREE.GridHelper(20, 20, 0x444444, 0x555555);
     scene.add(gridHelper);
 
-    // Axes helper with subtle coloring
+    // Axes helper
     const axesHelper = new THREE.AxesHelper(2);
     scene.add(axesHelper);
 
-    // Professional lighting setup: ambient + directional for clear visibility
-    const ambientLight = new THREE.AmbientLight(0x404040, 1.2); // Softer ambient
+    // Professional lighting setup
+    const ambientLight = new THREE.AmbientLight(0x404040, 1.2);
     scene.add(ambientLight);
 
-    // Main directional light with soft shadows
     const dirLight = new THREE.DirectionalLight(0xffffff, 1.8);
     dirLight.position.set(5, 10, 7);
     dirLight.castShadow = true;
@@ -53,15 +49,24 @@ export function initScene(container, requestRender) {
     dirLight.shadow.bias = -0.0001;
     scene.add(dirLight);
 
-    // Optional fill light for better visualization
     const fillLight = new THREE.DirectionalLight(0xffffff, 0.4);
     fillLight.position.set(-5, 3, -5);
     scene.add(fillLight);
 
-    // Set initial camera position - will be properly framed after controls are initialized
-    // Use a safe default that shows the workspace
-    camera.position.set(18, 18, 18);
-    camera.lookAt(0, 5, 0);
+    // Industry standard initial camera position: isometric-like view
+    // x=45°, y=30° elevation, distance ~10 units
+    const initialDistance = 10;
+    const horizontalAngle = 45 * (Math.PI / 180);
+    const elevationAngle = 30 * (Math.PI / 180);
+    const horizontalDist = initialDistance * Math.cos(elevationAngle);
+    const verticalDist = initialDistance * Math.sin(elevationAngle);
+    
+    camera.position.set(
+        horizontalDist * Math.cos(horizontalAngle),
+        verticalDist + 5, // Center vertically
+        horizontalDist * Math.sin(horizontalAngle)
+    );
+    camera.lookAt(0, 5, 0); // Look at scene center
 
     const handleResize = () => {
         const newWidth = Math.max(container.clientWidth || 800, 800);
@@ -73,8 +78,6 @@ export function initScene(container, requestRender) {
     };
 
     window.addEventListener('resize', handleResize);
-    
-    // Ensure initial render
     requestRender();
 
     return {

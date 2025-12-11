@@ -2,58 +2,52 @@ import * as THREE from 'three';
 import { WORKSPACE_BOUNDS } from './constants.js';
 
 /**
- * Calculate optimal camera position to frame a bounding box with land-to-sky view
- * Ensures full vertical visibility from floor to top
+ * Calculate optimal camera position with isometric-like view (35-45° angle)
+ * Industry standard: x=45°, y=30°, distance 8-12 units
  * @param {THREE.Box3} boundingBox - The bounding box to frame
  * @param {THREE.PerspectiveCamera} camera - The camera to position
  * @param {number} margin - Additional margin around the box (default: 0.2 = 20%)
- * @param {number} angle - Camera angle from horizontal (default: 60 degrees for diagonal top-down)
+ * @param {number} distance - Preferred distance (default: 10 units)
  * @returns {Object} { position: THREE.Vector3, target: THREE.Vector3 }
  */
-export function calculateCameraFrame(boundingBox, camera, margin = 0.2, angle = 60) {
+export function calculateCameraFrame(boundingBox, camera, margin = 0.2, distance = 10) {
     const center = boundingBox.getCenter(new THREE.Vector3());
     const size = boundingBox.getSize(new THREE.Vector3());
     
     // Ensure minimum dimensions
-    const width = Math.max(size.x, 1);
-    const height = Math.max(size.y, 1); // Vertical extent is critical for land-to-sky
-    const depth = Math.max(size.z, 1);
+    const maxDim = Math.max(size.x, size.y, size.z, 1);
     
-    // Calculate distance needed to fit the box in view
-    // Account for camera FOV and aspect ratio
+    // Calculate required distance to fit the box
     const fov = camera.fov * (Math.PI / 180);
     const aspect = Math.max(camera.aspect || 1, 0.1);
     
-    // For "land-to-sky" view, prioritize vertical visibility
-    // Calculate distance needed to see full height
-    const viewHeight = height * (1 + margin);
-    const viewWidth = Math.max(width, depth) * (1 + margin);
+    const viewHeight = maxDim * (1 + margin);
+    const viewWidth = viewHeight * aspect;
     
-    // Calculate distance based on both vertical and horizontal requirements
-    const distanceForHeight = viewHeight / (2 * Math.tan(fov / 2));
-    const distanceForWidth = (viewWidth / aspect) / (2 * Math.tan(fov / 2));
-    
-    // Use the larger distance to ensure everything fits
-    const baseDistance = Math.max(distanceForHeight, distanceForWidth);
-    
-    // Add extra distance for better viewing angle and to prevent clipping
-    const finalDistance = baseDistance * 1.3;
-    
-    // Calculate camera position with diagonal top-down perspective
-    // Angle of 60 degrees provides good "land-to-sky" view
-    const angleRad = angle * (Math.PI / 180);
-    const horizontalDistance = finalDistance * Math.cos(angleRad);
-    const verticalDistance = finalDistance * Math.sin(angleRad);
-    
-    // Position camera at diagonal angle (slight top-down perspective)
-    // This ensures we see from floor to sky
-    const position = new THREE.Vector3(
-        center.x + horizontalDistance * 0.7,
-        center.y + verticalDistance,
-        center.z + horizontalDistance * 0.7
+    const requiredDistance = Math.max(
+        viewHeight / (2 * Math.tan(fov / 2)),
+        viewWidth / (2 * Math.tan(fov / 2))
     );
     
-    // Ensure camera doesn't go below floor (minimum y = 1.0)
+    // Use preferred distance or calculated distance, whichever is larger
+    const finalDistance = Math.max(distance, requiredDistance * 1.2);
+    
+    // Industry standard isometric-like angles: x=45°, y=30° (elevation)
+    const horizontalAngle = 45 * (Math.PI / 180); // 45° around Y axis
+    const elevationAngle = 30 * (Math.PI / 180);  // 30° elevation (downward)
+    
+    // Calculate position with isometric-like view
+    const horizontalDistance = finalDistance * Math.cos(elevationAngle);
+    const verticalDistance = finalDistance * Math.sin(elevationAngle);
+    
+    // Position camera at 45° horizontal, 30° elevation
+    const position = new THREE.Vector3(
+        center.x + horizontalDistance * Math.cos(horizontalAngle),
+        center.y + verticalDistance,
+        center.z + horizontalDistance * Math.sin(horizontalAngle)
+    );
+    
+    // Ensure camera doesn't go below floor
     position.y = Math.max(position.y, 1.0);
     
     return {
@@ -63,18 +57,13 @@ export function calculateCameraFrame(boundingBox, camera, margin = 0.2, angle = 
 }
 
 /**
- * Frame the entire workspace (grid + all objects) with land-to-sky view
- * @param {THREE.Scene} scene - The scene
- * @param {THREE.PerspectiveCamera} camera - The camera
- * @param {Array} objects - Array of objects to include
- * @param {THREE.GridHelper} gridHelper - The grid helper
- * @returns {Object} { position: THREE.Vector3, target: THREE.Vector3 }
+ * Frame the entire workspace with isometric-like view
+ * Ensures full visibility: ground, sky, left, right, front, back
  */
 export function frameWorkspace(scene, camera, objects = [], gridHelper = null) {
     const boundingBox = new THREE.Box3();
     
     // Always include full workspace bounds (floor to sky)
-    // This ensures "land-to-sky" view is always maintained
     boundingBox.expandByPoint(new THREE.Vector3(
         WORKSPACE_BOUNDS.minX, 
         WORKSPACE_BOUNDS.minY, // Floor (y = 0)
@@ -104,7 +93,7 @@ export function frameWorkspace(scene, camera, objects = [], gridHelper = null) {
     
     // Include grid if present (ensures floor is visible)
     if (gridHelper && gridHelper.visible) {
-        const gridSize = 20; // Grid size from scene setup
+        const gridSize = 20;
         const gridBox = new THREE.Box3(
             new THREE.Vector3(-gridSize / 2, 0, -gridSize / 2),
             new THREE.Vector3(gridSize / 2, 0, gridSize / 2)
@@ -115,34 +104,29 @@ export function frameWorkspace(scene, camera, objects = [], gridHelper = null) {
     // Ensure minimum size for empty scene - always include full vertical range
     if (boundingBox.isEmpty() || boundingBox.getSize(new THREE.Vector3()).length() < 1) {
         boundingBox.setFromCenterAndSize(
-            new THREE.Vector3(0, WORKSPACE_BOUNDS.maxY / 2, 0), // Center vertically
+            new THREE.Vector3(0, WORKSPACE_BOUNDS.maxY / 2, 0),
             new THREE.Vector3(
                 WORKSPACE_BOUNDS.maxX - WORKSPACE_BOUNDS.minX,
-                WORKSPACE_BOUNDS.maxY - WORKSPACE_BOUNDS.minY, // Full vertical range
+                WORKSPACE_BOUNDS.maxY - WORKSPACE_BOUNDS.minY,
                 WORKSPACE_BOUNDS.maxZ - WORKSPACE_BOUNDS.minZ
             )
         );
     }
     
-    // Use 60-degree angle for better "land-to-sky" diagonal view
-    return calculateCameraFrame(boundingBox, camera, 0.2, 60);
+    // Use industry standard distance: 8-12 units, prefer 10
+    return calculateCameraFrame(boundingBox, camera, 0.25, 10);
 }
 
 /**
- * Frame specific objects with land-to-sky view
- * @param {Array} objects - Array of objects to frame
- * @param {THREE.PerspectiveCamera} camera - The camera
- * @param {number} margin - Additional margin (default: 0.2)
- * @returns {Object} { position: THREE.Vector3, target: THREE.Vector3 }
+ * Frame specific objects with isometric-like view
  */
 export function frameObjects(objects, camera, margin = 0.2) {
     if (!objects || objects.length === 0) {
-        // Return a safe default frame if no objects
         const defaultBox = new THREE.Box3(
             new THREE.Vector3(-10, 0, -10),
             new THREE.Vector3(10, 10, 10)
         );
-        return calculateCameraFrame(defaultBox, camera, margin, 60);
+        return calculateCameraFrame(defaultBox, camera, margin, 10);
     }
     
     const boundingBox = new THREE.Box3();
@@ -163,36 +147,27 @@ export function frameObjects(objects, camera, margin = 0.2) {
     });
     
     if (!hasValidObjects || boundingBox.isEmpty()) {
-        // Return a safe default frame
         const defaultBox = new THREE.Box3(
             new THREE.Vector3(-10, 0, -10),
             new THREE.Vector3(10, 10, 10)
         );
-        return calculateCameraFrame(defaultBox, camera, margin, 60);
+        return calculateCameraFrame(defaultBox, camera, margin, 10);
     }
     
     // Ensure we always see from floor (y=0) to top
-    // Expand bounding box to include floor if objects are above it
     if (boundingBox.min.y > WORKSPACE_BOUNDS.minY) {
         boundingBox.expandByPoint(new THREE.Vector3(
             boundingBox.getCenter(new THREE.Vector3()).x,
-            WORKSPACE_BOUNDS.minY, // Include floor
+            WORKSPACE_BOUNDS.minY,
             boundingBox.getCenter(new THREE.Vector3()).z
         ));
     }
     
-    // Use 60-degree angle for "land-to-sky" view
-    return calculateCameraFrame(boundingBox, camera, margin, 60);
+    return calculateCameraFrame(boundingBox, camera, margin, 10);
 }
 
 /**
  * Smoothly animate camera to new position
- * @param {THREE.PerspectiveCamera} camera - The camera
- * @param {THREE.Vector3} targetPosition - Target camera position
- * @param {THREE.Vector3} targetLookAt - Target look-at point
- * @param {OrbitControls} orbitControls - Orbit controls
- * @param {Function} requestRender - Render request function
- * @param {number} duration - Animation duration in ms (default: 500)
  */
 export function animateCameraTo(
     camera,

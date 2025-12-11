@@ -8,12 +8,15 @@ export function initControls(
     scene,
     { onTransformChange, onTransformStart, onTransformEnd, requestRender }
 ) {
-    // Professional OrbitControls with limits and smooth behavior
+    // Professional OrbitControls with industry-standard settings
     const orbit = new OrbitControls(camera, renderer.domElement);
     orbit.enableDamping = true;
     orbit.dampingFactor = 0.1;
     
-    // Calculate optimal zoom limits based on workspace size
+    // Industry standard: rotation center = scene origin (0,0,0)
+    orbit.target.set(0, 0, 0);
+    
+    // Calculate optimal zoom limits
     const workspaceSize = Math.max(
         WORKSPACE_BOUNDS.maxX - WORKSPACE_BOUNDS.minX,
         WORKSPACE_BOUNDS.maxZ - WORKSPACE_BOUNDS.minZ,
@@ -23,12 +26,12 @@ export function initControls(
     // Min distance: close enough to see details but not inside objects
     orbit.minDistance = Math.max(2, workspaceSize * 0.1);
     
-    // Max distance: far enough to see entire workspace with margin
+    // Max distance: far enough to see entire workspace
     orbit.maxDistance = workspaceSize * 3;
     
     // Allow full rotation but prevent going below floor
-    orbit.minPolarAngle = 0; // Allow looking from top
-    orbit.maxPolarAngle = Math.PI; // Allow looking from bottom
+    orbit.minPolarAngle = 0;
+    orbit.maxPolarAngle = Math.PI;
     
     orbit.enablePan = true;
     orbit.panSpeed = 1.0;
@@ -45,9 +48,8 @@ export function initControls(
         maxZ: WORKSPACE_BOUNDS.maxZ + 5
     };
     
-    // Prevent camera from going below floor or outside workspace
+    // Prevent camera from going below floor
     orbit.addEventListener('change', () => {
-        // Prevent camera from going below floor
         if (camera.position.y < 1.0) {
             camera.position.y = 1.0;
         }
@@ -60,7 +62,7 @@ export function initControls(
         requestRender();
     });
     
-    // Prevent camera from getting too close to objects or going inside them
+    // Prevent camera from getting too close
     orbit.addEventListener('change', () => {
         const distance = camera.position.distanceTo(orbit.target);
         if (distance < orbit.minDistance) {
@@ -73,12 +75,39 @@ export function initControls(
         }
     });
 
-    // Professional TransformControls with axis constraints support
+    // Professional TransformControls with stability fixes
     const transform = new TransformControls(camera, renderer.domElement);
+    
+    // Track dragging state to prevent accidental deselection
+    let isDragging = false;
+    let dragStartTime = 0;
+    
+    // Industry standard: handles must stay selected until user clicks empty space
     transform.addEventListener('dragging-changed', (event) => {
-        orbit.enabled = !event.value;
-        if (event.value && onTransformStart) onTransformStart();
-        if (!event.value && onTransformEnd) onTransformEnd();
+        isDragging = event.value;
+        
+        if (event.value) {
+            // Drag start: lock OrbitControls
+            dragStartTime = Date.now();
+            orbit.enabled = false;
+            if (onTransformStart) onTransformStart();
+        } else {
+            // Drag end: small delay before re-enabling to prevent jitter
+            const dragDuration = Date.now() - dragStartTime;
+            const minDragTime = 50; // Minimum drag time to consider it intentional
+            
+            if (dragDuration < minDragTime) {
+                // Very short drag - might be accidental, wait a bit
+                setTimeout(() => {
+                    orbit.enabled = true;
+                }, 100);
+            } else {
+                // Normal drag - re-enable immediately
+                orbit.enabled = true;
+            }
+            
+            if (onTransformEnd) onTransformEnd();
+        }
         requestRender();
     });
 
@@ -89,10 +118,17 @@ export function initControls(
         requestRender();
     });
 
+    // Ensure handles draw on top (zIndex fix)
+    transform.setSpace('world');
+    
     // Show gizmo only when object is selected
     transform.visible = false;
 
     scene.add(transform);
 
-    return { orbit, transform };
+    return { 
+        orbit, 
+        transform,
+        isDragging: () => isDragging
+    };
 }

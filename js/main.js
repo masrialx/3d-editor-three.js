@@ -97,7 +97,7 @@ function updateUI(object) {
 }
 
 let transformSnapshotTaken = false;
-const { orbit: orbitCtrl, transform } = initControls(camera, renderer, scene, {
+const { orbit: orbitCtrl, transform, isDragging: getIsDragging } = initControls(camera, renderer, scene, {
     onTransformChange: (obj) => {
         updateUI(obj);
     },
@@ -122,12 +122,13 @@ selectionManager = initSelection(
     (obj) => {
     updateUI(obj);
     },
-    requestRender
+    requestRender,
+    getIsDragging
 );
 
 history = createHistory({
-    serialize: () => serializeScene(),
-    load: (data) => loadSceneData(data, scene, selectionManager),
+    serialize: () => serializeScene(camera, orbit),
+    load: (data) => loadSceneData(data, scene, selectionManager, camera, orbit),
     requestRender
 });
 history.record(); // initial empty state
@@ -205,6 +206,7 @@ function frameAll() {
             // Frame workspace if no objects
             const frame = frameWorkspace(scene, camera, [], gridHelper);
             if (frame && frame.position && frame.target) {
+                orbit.target.set(0, 0, 0); // Reset pivot to origin
                 animateCameraTo(camera, frame.position, frame.target, orbit, requestRender, 400);
                 showNotification('Framed workspace', 'success');
             } else {
@@ -216,6 +218,8 @@ function frameAll() {
         
         const frame = frameObjects(objects, camera, 0.3);
         if (frame && frame.position && frame.target) {
+            // Industry standard: OrbitControls pivot to scene center
+            orbit.target.copy(frame.target);
             animateCameraTo(camera, frame.position, frame.target, orbit, requestRender, 400);
             showNotification(`Framed ${objects.length} object(s)`, 'success');
         } else {
@@ -368,7 +372,7 @@ function addObjectWithHistory(type, addFn) {
 }
 
 // Frame newly created object smoothly with auto-adjustment
-// Ensures both the new object and full workspace remain visible
+// Industry standard: OrbitControls pivot snaps to new object
 function frameNewObject(object) {
     if (!object) return;
     
@@ -376,11 +380,12 @@ function frameNewObject(object) {
     const allObjects = getObjects();
     
     // Frame all objects to ensure workspace remains visible
-    // This provides better UX than just framing the single new object
     const frame = frameObjects(allObjects, camera, 0.3);
     
-    // Always animate smoothly, even if object is in view
-    // This provides consistent UX and ensures optimal framing
+    // Industry standard: Snap OrbitControls pivot to new object center
+    orbit.target.copy(object.position);
+    
+    // Smoothly animate camera to frame the new object
     animateCameraTo(camera, frame.position, frame.target, orbit, requestRender, 400);
 }
 
@@ -422,10 +427,18 @@ document.getElementById('clear-scene').addEventListener('click', () => {
         disposeObject(obj);
     });
     clearObjectsArray();
+    
+    // Industry standard: Frame workspace after clear
+    setTimeout(() => {
+        const frame = frameWorkspace(scene, camera, [], gridHelper);
+        orbit.target.set(0, 0, 0); // Reset pivot to origin
+        animateCameraTo(camera, frame.position, frame.target, orbit, requestRender, 400);
+    }, 50);
+    
     requestRender();
 });
 
-document.getElementById('save-scene').addEventListener('click', exportScene);
+document.getElementById('save-scene').addEventListener('click', () => exportScene(camera, orbit));
 
 // Frame controls with error handling
 const frameSelectedBtn = document.getElementById('frame-selected');
@@ -433,14 +446,12 @@ const frameAllBtn = document.getElementById('frame-all');
 
 if (frameSelectedBtn) {
     frameSelectedBtn.addEventListener('click', frameSelected);
-    console.log('Frame Selected button connected');
 } else {
     console.error('Frame Selected button not found!');
 }
 
 if (frameAllBtn) {
     frameAllBtn.addEventListener('click', frameAll);
-    console.log('Frame All button connected');
 } else {
     console.error('Frame All button not found!');
 }
@@ -454,12 +465,17 @@ fileInput.addEventListener('change', (e) => {
     history.record();
     const reader = new FileReader();
     reader.onload = (event) => {
-        importScene(event.target.result, scene, selectionManager);
-        // Auto-frame all objects after import
+        const result = importScene(event.target.result, scene, selectionManager, camera, orbit);
+        // Auto-frame all objects after import (if camera wasn't restored)
         setTimeout(() => {
             const objects = getObjects();
             if (objects.length > 0) {
-                frameAll();
+                // Only frame if camera wasn't restored from file
+                if (!result || !result.cameraRestored) {
+                    frameAll();
+                } else {
+                    requestRender();
+                }
             } else {
                 // Frame workspace if no objects
                 const frame = frameWorkspace(scene, camera, [], gridHelper);
@@ -498,12 +514,17 @@ container.addEventListener('drop', (e) => {
         history.record();
         const reader = new FileReader();
         reader.onload = (event) => {
-            importScene(event.target.result, scene, selectionManager);
-            // Auto-frame all objects after import
+            const result = importScene(event.target.result, scene, selectionManager, camera, orbit);
+            // Auto-frame all objects after import (if camera wasn't restored)
             setTimeout(() => {
                 const objects = getObjects();
                 if (objects.length > 0) {
-                    frameAll();
+                    // Only frame if camera wasn't restored from file
+                    if (!result || !result.cameraRestored) {
+                        frameAll();
+                    } else {
+                        requestRender();
+                    }
                 } else {
                     // Frame workspace if no objects
                     const frame = frameWorkspace(scene, camera, [], gridHelper);

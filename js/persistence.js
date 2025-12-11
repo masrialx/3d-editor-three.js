@@ -5,9 +5,9 @@ import { DEFAULT_COLORS, EXPORT_FILE_NAME, OBJECT_TYPES, DEFAULT_DIMENSIONS, SCA
 
 const SCENE_VERSION = '1.0.0';
 
-export function serializeScene() {
+export function serializeScene(camera = null, orbitControls = null) {
     const objects = getObjects();
-    return {
+    const sceneData = {
         version: SCENE_VERSION,
         timestamp: Date.now(),
         objects: objects.map((obj) => ({
@@ -20,11 +20,22 @@ export function serializeScene() {
             color: obj.material.color.getHex()
         }))
     };
+    
+    // Industry standard: Save camera position and angle for restoration
+    if (camera && orbitControls) {
+        sceneData.camera = {
+            position: camera.position.toArray(),
+            target: orbitControls.target.toArray(),
+            fov: camera.fov
+        };
+    }
+    
+    return sceneData;
 }
 
-export function exportScene() {
+export function exportScene(camera = null, orbitControls = null) {
     try {
-        const data = serializeScene();
+        const data = serializeScene(camera, orbitControls);
         const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
 
@@ -65,10 +76,11 @@ function validateItem(item) {
     return true;
 }
 
-export function loadSceneData(data, scene, selectionManager) {
+export function loadSceneData(data, scene, selectionManager, camera = null, orbitControls = null) {
     // Handle both old format (array) and new format (object with version)
     let objectsData = [];
     let version = 'unknown';
+    let cameraData = null;
     
     if (Array.isArray(data)) {
         // Legacy format
@@ -77,6 +89,7 @@ export function loadSceneData(data, scene, selectionManager) {
         // New format with version
         objectsData = data.objects;
         version = data.version || 'unknown';
+        cameraData = data.camera || null;
     } else {
         throw new Error('Invalid format: root should be an array or object with objects array');
     }
@@ -150,14 +163,35 @@ export function loadSceneData(data, scene, selectionManager) {
         loadedCount++;
     });
 
+    // Industry standard: Restore camera position and angle if available
+    if (cameraData && camera && orbitControls) {
+        try {
+            if (isValidNumberArray(cameraData.position, 3)) {
+                camera.position.fromArray(cameraData.position);
+            }
+            if (isValidNumberArray(cameraData.target, 3)) {
+                orbitControls.target.fromArray(cameraData.target);
+            }
+            if (Number.isFinite(cameraData.fov) && cameraData.fov > 0 && cameraData.fov < 180) {
+                camera.fov = cameraData.fov;
+                camera.updateProjectionMatrix();
+            }
+            camera.lookAt(orbitControls.target);
+        } catch (error) {
+            console.warn('Could not restore camera position:', error);
+        }
+    }
+
     if (skippedCount > 0) {
         showNotification(`Loaded ${loadedCount} objects, skipped ${skippedCount} invalid entries.`, 'warning');
     } else {
         showNotification(`Scene loaded successfully! (${loadedCount} objects, version: ${version})`, 'success');
     }
+    
+    return { loadedCount, skippedCount, cameraRestored: !!cameraData };
 }
 
-export function importScene(jsonString, scene, selectionManager) {
+export function importScene(jsonString, scene, selectionManager, camera = null, orbitControls = null) {
     try {
         // Validate JSON size (prevent memory issues)
         if (jsonString.length > 10 * 1024 * 1024) { // 10MB limit
@@ -165,10 +199,11 @@ export function importScene(jsonString, scene, selectionManager) {
         }
 
         const data = JSON.parse(jsonString);
-        loadSceneData(data, scene, selectionManager);
+        return loadSceneData(data, scene, selectionManager, camera, orbitControls);
     } catch (error) {
         showNotification('Failed to load JSON: ' + error.message, 'error');
         console.error('Import error:', error);
+        return null;
     }
 }
 
