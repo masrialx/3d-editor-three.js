@@ -24,7 +24,7 @@ function createMesh(geometry, color, name, type, options = {}) {
     const mesh = new THREE.Mesh(geometry, material);
     mesh.castShadow = true;
     mesh.receiveShadow = true;
-
+    
     // Professional metadata with UUID and timestamps
     mesh.userData = {
         isEditable: true,
@@ -137,8 +137,8 @@ export function addCylinder(scene, options = {}) {
 
 export function addObjectToRegistry(mesh) {
     if (!objects.includes(mesh)) {
-        objects.push(mesh);
-    }
+    objects.push(mesh);
+}
 }
 
 export function removeObjectFromRegistry(mesh) {

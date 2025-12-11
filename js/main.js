@@ -8,6 +8,7 @@ import { exportScene, importScene, serializeScene, loadSceneData, showNotificati
 import { disposeObject } from './utils.js';
 import { OBJECT_TYPES } from './constants.js';
 import { createHistory } from './history.js';
+import { frameObjects, frameWorkspace, animateCameraTo } from './camera-utils.js';
 
 const container = document.getElementById('canvas-container');
 
@@ -33,6 +34,11 @@ const sceneInit = initScene(container, requestRender);
 scene = sceneInit.scene;
 camera = sceneInit.camera;
 renderer = sceneInit.renderer;
+const gridHelper = sceneInit.gridHelper;
+const axesHelper = sceneInit.axesHelper;
+
+// Ensure initial render happens immediately
+requestRender();
 
 let selectionManager = null;
 let snapEnabled = false;
@@ -126,6 +132,33 @@ history = createHistory({
 });
 history.record(); // initial empty state
 
+// Frame workspace after controls are initialized with smooth animation
+setTimeout(() => {
+    if (orbit && camera && scene && gridHelper) {
+        try {
+            const initialFrame = frameWorkspace(scene, camera, [], gridHelper);
+            if (initialFrame && initialFrame.position) {
+                // Smoothly animate to initial frame for better UX
+                animateCameraTo(
+                    camera,
+                    initialFrame.position,
+                    initialFrame.target,
+                    orbit,
+                    requestRender,
+                    600
+                );
+            }
+        } catch (error) {
+            console.warn('Could not frame workspace initially:', error);
+            // Keep default camera position but ensure it shows workspace
+            camera.position.set(20, 20, 20);
+            camera.lookAt(0, 10, 0);
+            orbit.target.set(0, 10, 0);
+            requestRender();
+        }
+    }
+}, 100);
+
 const snapToggle = document.getElementById('snap-toggle');
 const undoBtn = document.getElementById('undo-btn');
 const redoBtn = document.getElementById('redo-btn');
@@ -142,46 +175,72 @@ function applySnap() {
     }
 }
 
-// Professional frame functions
+// Professional frame functions using camera utilities
 function frameSelected() {
-    const selected = selectionManager.getSelected();
-    if (!selected) return;
-    
-    const box = new THREE.Box3().setFromObject(selected);
-    const center = box.getCenter(new THREE.Vector3());
-    const size = box.getSize(new THREE.Vector3());
-    const maxDim = Math.max(size.x, size.y, size.z);
-    const distance = maxDim * 2.5;
-    
-    camera.position.set(
-        center.x + distance,
-        center.y + distance,
-        center.z + distance
-    );
-    camera.lookAt(center);
-    orbit.target.copy(center);
-    requestRender();
+    try {
+        const selected = selectionManager.getSelected();
+        if (!selected) {
+            showNotification('No object selected. Please select an object first.', 'warning');
+            return;
+        }
+        
+        const frame = frameObjects([selected], camera, 0.3);
+        if (frame && frame.position && frame.target) {
+            animateCameraTo(camera, frame.position, frame.target, orbit, requestRender, 400);
+            showNotification('Framed selected object', 'success');
+        } else {
+            console.error('Invalid frame data:', frame);
+            showNotification('Could not frame selected object', 'error');
+        }
+    } catch (error) {
+        console.error('Error framing selected object:', error);
+        showNotification('Error framing selected object: ' + error.message, 'error');
+    }
 }
 
 function frameAll() {
-    const objects = getObjects();
-    if (objects.length === 0) return;
+    try {
+        const objects = getObjects();
+        if (objects.length === 0) {
+            // Frame workspace if no objects
+            const frame = frameWorkspace(scene, camera, [], gridHelper);
+            if (frame && frame.position && frame.target) {
+                animateCameraTo(camera, frame.position, frame.target, orbit, requestRender, 400);
+                showNotification('Framed workspace', 'success');
+            } else {
+                console.error('Invalid frame data:', frame);
+                showNotification('Could not frame workspace', 'error');
+            }
+            return;
+        }
+        
+        const frame = frameObjects(objects, camera, 0.3);
+        if (frame && frame.position && frame.target) {
+            animateCameraTo(camera, frame.position, frame.target, orbit, requestRender, 400);
+            showNotification(`Framed ${objects.length} object(s)`, 'success');
+        } else {
+            console.error('Invalid frame data:', frame);
+            showNotification('Could not frame objects', 'error');
+        }
+    } catch (error) {
+        console.error('Error framing all objects:', error);
+        showNotification('Error framing objects: ' + error.message, 'error');
+    }
+}
+
+// Check if object is visible in camera view
+function isObjectInView(object, camera) {
+    if (!object) return false;
     
-    const box = new THREE.Box3();
-    objects.forEach(obj => box.expandByObject(obj));
-    const center = box.getCenter(new THREE.Vector3());
-    const size = box.getSize(new THREE.Vector3());
-    const maxDim = Math.max(size.x, size.y, size.z);
-    const distance = maxDim * 2.5;
-    
-    camera.position.set(
-        center.x + distance,
-        center.y + distance,
-        center.z + distance
+    const box = new THREE.Box3().setFromObject(object);
+    const frustum = new THREE.Frustum();
+    const matrix = new THREE.Matrix4().multiplyMatrices(
+        camera.projectionMatrix,
+        camera.matrixWorldInverse
     );
-    camera.lookAt(center);
-    orbit.target.copy(center);
-    requestRender();
+    frustum.setFromProjectionMatrix(matrix);
+    
+    return frustum.intersectsBox(box);
 }
 
 // Input handlers with snap support
@@ -300,7 +359,7 @@ function addObjectWithHistory(type, addFn) {
         // Auto-select the new object
         selectionManager.selectObject(obj);
         
-        // Professional camera framing: smoothly frame the new object
+        // Professional camera framing: smoothly frame the new object and workspace
         frameNewObject(obj);
         
         // UI updates immediately (handled by selectObject callback)
@@ -308,44 +367,21 @@ function addObjectWithHistory(type, addFn) {
     }
 }
 
-// Frame newly created object smoothly
+// Frame newly created object smoothly with auto-adjustment
+// Ensures both the new object and full workspace remain visible
 function frameNewObject(object) {
-    const box = new THREE.Box3().setFromObject(object);
-    const center = box.getCenter(new THREE.Vector3());
-    const size = box.getSize(new THREE.Vector3());
-    const maxDim = Math.max(size.x, size.y, size.z);
-    const distance = maxDim * 3; // Slightly further for new objects
+    if (!object) return;
     
-    // Smooth camera transition
-    const startPos = camera.position.clone();
-    const targetPos = new THREE.Vector3(
-        center.x + distance * 0.7,
-        center.y + distance * 0.7,
-        center.z + distance * 0.7
-    );
+    // Get all objects including the new one
+    const allObjects = getObjects();
     
-    const startTarget = orbit.target.clone();
-    const targetTarget = center.clone();
+    // Frame all objects to ensure workspace remains visible
+    // This provides better UX than just framing the single new object
+    const frame = frameObjects(allObjects, camera, 0.3);
     
-    const duration = 300; // milliseconds
-    const startTime = Date.now();
-    
-    function animateCamera() {
-        const elapsed = Date.now() - startTime;
-        const progress = Math.min(elapsed / duration, 1);
-        const easeProgress = 1 - Math.pow(1 - progress, 2); // Ease-out
-        
-        camera.position.lerpVectors(startPos, targetPos, easeProgress);
-        orbit.target.lerpVectors(startTarget, targetTarget, easeProgress);
-        camera.lookAt(orbit.target);
-        
-        if (progress < 1) {
-            requestAnimationFrame(animateCamera);
-        }
-        requestRender();
-    }
-    
-    animateCamera();
+    // Always animate smoothly, even if object is in view
+    // This provides consistent UX and ensures optimal framing
+    animateCameraTo(camera, frame.position, frame.target, orbit, requestRender, 400);
 }
 
 addButtons[OBJECT_TYPES.BOX].addEventListener('click', () => {
@@ -391,8 +427,23 @@ document.getElementById('clear-scene').addEventListener('click', () => {
 
 document.getElementById('save-scene').addEventListener('click', exportScene);
 
-document.getElementById('frame-selected').addEventListener('click', frameSelected);
-document.getElementById('frame-all').addEventListener('click', frameAll);
+// Frame controls with error handling
+const frameSelectedBtn = document.getElementById('frame-selected');
+const frameAllBtn = document.getElementById('frame-all');
+
+if (frameSelectedBtn) {
+    frameSelectedBtn.addEventListener('click', frameSelected);
+    console.log('Frame Selected button connected');
+} else {
+    console.error('Frame Selected button not found!');
+}
+
+if (frameAllBtn) {
+    frameAllBtn.addEventListener('click', frameAll);
+    console.log('Frame All button connected');
+} else {
+    console.error('Frame All button not found!');
+}
 
 const fileInput = document.getElementById('file-input');
 document.getElementById('load-scene').addEventListener('click', () => fileInput.click());
@@ -404,6 +455,17 @@ fileInput.addEventListener('change', (e) => {
     const reader = new FileReader();
     reader.onload = (event) => {
         importScene(event.target.result, scene, selectionManager);
+        // Auto-frame all objects after import
+        setTimeout(() => {
+            const objects = getObjects();
+            if (objects.length > 0) {
+                frameAll();
+            } else {
+                // Frame workspace if no objects
+                const frame = frameWorkspace(scene, camera, [], gridHelper);
+                animateCameraTo(camera, frame.position, frame.target, orbit, requestRender, 400);
+            }
+        }, 100);
         requestRender();
     };
     reader.onerror = () => {
@@ -437,6 +499,17 @@ container.addEventListener('drop', (e) => {
         const reader = new FileReader();
         reader.onload = (event) => {
             importScene(event.target.result, scene, selectionManager);
+            // Auto-frame all objects after import
+            setTimeout(() => {
+                const objects = getObjects();
+                if (objects.length > 0) {
+                    frameAll();
+                } else {
+                    // Frame workspace if no objects
+                    const frame = frameWorkspace(scene, camera, [], gridHelper);
+                    animateCameraTo(camera, frame.position, frame.target, orbit, requestRender, 400);
+                }
+            }, 100);
             requestRender();
         };
         reader.readAsText(file);
@@ -575,4 +648,23 @@ ui.modeButtons.scale.addEventListener('click', () => {
 
 setModeButtons('translate');
 applySnap();
+
+// Grid and Axes toggle controls
+const gridToggle = document.getElementById('grid-toggle');
+const axesToggle = document.getElementById('axes-toggle');
+
+if (gridToggle && gridHelper) {
+    gridToggle.addEventListener('change', (e) => {
+        gridHelper.visible = e.target.checked;
+        requestRender();
+    });
+}
+
+if (axesToggle && axesHelper) {
+    axesToggle.addEventListener('change', (e) => {
+        axesHelper.visible = e.target.checked;
+        requestRender();
+    });
+}
+
 requestRender();
