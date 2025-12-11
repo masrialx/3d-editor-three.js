@@ -1,10 +1,10 @@
+import { safeParseNumber } from './utils.js';
+
 export function updateObjectPosition(object, axis, value) {
     if (!object) return;
-    
-    const val = parseFloat(value);
-    if (isNaN(val)) return;
 
-    if (axis === 'x') object.position.x = val;
-    if (axis === 'y') object.position.y = val;
-    if (axis === 'z') object.position.z = val;
+    const parsed = safeParseNumber(value, object.position[axis] ?? 0);
+    if (axis === 'x') object.position.x = parsed;
+    if (axis === 'y') object.position.y = parsed;
+    if (axis === 'z') object.position.z = parsed;
 }

@@ -5,13 +5,24 @@ import { initSelection } from './selection.js';
 import { updateObjectPosition } from './transform.js';
 import { exportScene, importScene } from './persistence.js';
 import { disposeObject } from './utils.js';
+import { OBJECT_TYPES } from './constants.js';
 
-// 1. Initialization
 const container = document.getElementById('canvas-container');
-const { scene, camera, renderer } = initScene(container);
 
-// UI Elements
-const uiIds = {
+let renderPending = false;
+const requestRender = () => {
+    if (renderPending) return;
+    renderPending = true;
+    requestAnimationFrame(() => {
+        renderPending = false;
+        orbit.update();
+        renderer.render(scene, camera);
+    });
+};
+
+const { scene, camera, renderer } = initScene(container, requestRender);
+
+const ui = {
     posX: document.getElementById('pos-x'),
     posY: document.getElementById('pos-y'),
     posZ: document.getElementById('pos-z'),
@@ -19,73 +30,94 @@ const uiIds = {
     selId: document.getElementById('selected-id')
 };
 
-// 2. UI Update Logic (Sync 3D -> UI)
 function updateUI(object) {
     if (!object) {
-        uiIds.panel.style.display = 'none';
+        ui.panel.style.display = 'none';
         return;
     }
-    uiIds.panel.style.display = 'block';
-    uiIds.selId.textContent = object.userData.type;
-    uiIds.posX.value = object.position.x.toFixed(2);
-    uiIds.posY.value = object.position.y.toFixed(2);
-    uiIds.posZ.value = object.position.z.toFixed(2);
+    ui.panel.style.display = 'block';
+    ui.selId.textContent = object.userData.type;
+    ui.posX.value = object.position.x.toFixed(2);
+    ui.posY.value = object.position.y.toFixed(2);
+    ui.posZ.value = object.position.z.toFixed(2);
 }
 
-// 3. Controls Setup
-const { orbit, transform } = initControls(camera, renderer, scene, (obj) => {
-    updateUI(obj); // Update inputs when dragging Gizmo
+const { orbit, transform } = initControls(camera, renderer, scene, {
+    onTransformChange: (obj) => {
+        updateUI(obj);
+    },
+    requestRender
 });
 
-// 4. Selection Setup
-const selectionManager = initSelection(camera, renderer.domElement, transform, (obj) => {
-    updateUI(obj);
-});
+const selectionManager = initSelection(
+    camera,
+    renderer.domElement,
+    transform,
+    (obj) => {
+        updateUI(obj);
+    },
+    requestRender
+);
 
-// 5. Input Event Listeners (Sync UI -> 3D)
-['x', 'y', 'z'].forEach(axis => {
+['x', 'y', 'z'].forEach((axis) => {
     const input = document.getElementById(`pos-${axis}`);
     input.addEventListener('input', (e) => {
         const selected = selectionManager.getSelected();
         if (selected) {
             updateObjectPosition(selected, axis, e.target.value);
+            requestRender();
         }
     });
 });
 
-// 6. Button Actions
-document.getElementById('add-box').addEventListener('click', () => { 
-    const mesh = addBox(scene); 
-    // Auto select new object (optional)
+const addButtons = {
+    [OBJECT_TYPES.BOX]: document.getElementById('add-box'),
+    [OBJECT_TYPES.SPHERE]: document.getElementById('add-sphere'),
+    [OBJECT_TYPES.CYLINDER]: document.getElementById('add-cylinder')
+};
+
+addButtons[OBJECT_TYPES.BOX].addEventListener('click', () => {
+    addBox(scene);
+    requestRender();
 });
-document.getElementById('add-sphere').addEventListener('click', () => addSphere(scene));
-document.getElementById('add-cylinder').addEventListener('click', () => addCylinder(scene));
+addButtons[OBJECT_TYPES.SPHERE].addEventListener('click', () => {
+    addSphere(scene);
+    requestRender();
+});
+addButtons[OBJECT_TYPES.CYLINDER].addEventListener('click', () => {
+    addCylinder(scene);
+    requestRender();
+});
 
 document.getElementById('delete-btn').addEventListener('click', () => {
     const selected = selectionManager.getSelected();
-    if(selected) {
+    if (!selected) return;
+    try {
         transform.detach();
         scene.remove(selected);
         disposeObject(selected);
-        
-        // Remove from registry
+
         const objects = getObjects();
         const index = objects.indexOf(selected);
         if (index > -1) objects.splice(index, 1);
-        
+
         selectionManager.deselect();
+        requestRender();
+    } catch (_e) {
+        alert('Unable to delete the selected object.');
     }
 });
 
 document.getElementById('clear-scene').addEventListener('click', () => {
-    if(!confirm("Clear all objects?")) return;
+    if (!confirm('Clear all objects?')) return;
     selectionManager.deselect();
     const objects = [...getObjects()];
-    objects.forEach(obj => {
+    objects.forEach((obj) => {
         scene.remove(obj);
         disposeObject(obj);
     });
     clearObjectsArray();
+    requestRender();
 });
 
 document.getElementById('save-scene').addEventListener('click', exportScene);
@@ -96,26 +128,19 @@ fileInput.addEventListener('change', (e) => {
     const file = e.target.files[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = (e) => importScene(e.target.result, scene, selectionManager);
+    reader.onload = (event) => importScene(event.target.result, scene, selectionManager);
+    reader.onerror = () => alert('Failed to read the selected file.');
     reader.readAsText(file);
-    fileInput.value = ''; // Reset
+    fileInput.value = '';
 });
 
-// Keybinds
-window.addEventListener('keydown', function (event) {
-    switch (event.key.toLowerCase()) {
-        case 't': // Toggle Transform Mode
-            if (transform.mode === 'translate') transform.setMode('rotate');
-            else if (transform.mode === 'rotate') transform.setMode('scale');
-            else transform.setMode('translate');
-            break;
+window.addEventListener('keydown', (event) => {
+    if (event.key.toLowerCase() === 't') {
+        if (transform.mode === 'translate') transform.setMode('rotate');
+        else if (transform.mode === 'rotate') transform.setMode('scale');
+        else transform.setMode('translate');
+        requestRender();
     }
 });
 
-// 7. Animation Loop
-function animate() {
-    requestAnimationFrame(animate);
-    orbit.update();
-    renderer.render(scene, camera);
-}
-animate();
+requestRender();

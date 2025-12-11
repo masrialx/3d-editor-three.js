@@ -1,24 +1,23 @@
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 
-export function initControls(camera, renderer, scene, onTransformChange) {
-    // Orbit Controls
+export function initControls(camera, renderer, scene, { onTransformChange, requestRender }) {
     const orbit = new OrbitControls(camera, renderer.domElement);
     orbit.enableDamping = true;
-    orbit.dampingFactor = 0.05;
+    orbit.dampingFactor = 0.1;
+    orbit.addEventListener('change', requestRender);
 
-    // Transform Controls (Gizmo)
     const transform = new TransformControls(camera, renderer.domElement);
-    transform.addEventListener('dragging-changed', function (event) {
-        // Disable orbit when dragging gizmo to prevent conflict
+    transform.addEventListener('dragging-changed', (event) => {
         orbit.enabled = !event.value;
+        requestRender();
     });
-    
-    // Trigger UI update when object is moved via Gizmo
+
     transform.addEventListener('change', () => {
         if (transform.object) {
             onTransformChange(transform.object);
         }
+        requestRender();
     });
 
     scene.add(transform);

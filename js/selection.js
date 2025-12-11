@@ -5,10 +5,9 @@ const raycaster = new THREE.Raycaster();
 const mouse = new THREE.Vector2();
 let selectedObject = null;
 
-export function initSelection(camera, canvas, transformControl, onSelectCallback) {
-    
-    // Calculate mouse position relative to canvas
+export function initSelection(camera, canvas, transformControl, onSelectCallback, requestRender) {
     function onPointerDown(event) {
+        if (event.button !== 0) return;
         const rect = canvas.getBoundingClientRect();
         mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
         mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
@@ -18,8 +17,6 @@ export function initSelection(camera, canvas, transformControl, onSelectCallback
 
     function checkIntersection() {
         raycaster.setFromCamera(mouse, camera);
-        
-        // Only raycast against editable objects
         const intersects = raycaster.intersectObjects(getObjects(), false);
 
         if (intersects.length > 0) {
@@ -28,27 +25,23 @@ export function initSelection(camera, canvas, transformControl, onSelectCallback
         } else {
             deselect();
         }
+        requestRender();
     }
 
     function selectObject(object) {
         if (selectedObject === object) return;
-        
-        // Reset previous object visual (if any logic existed)
+
         if (selectedObject && selectedObject.material.emissive) {
             selectedObject.material.emissive.setHex(0x000000);
         }
 
         selectedObject = object;
-        
-        // Attach Gizmo
         transformControl.attach(object);
-        
-        // Visual feedback (Emission)
-        if(object.material.emissive) {
+
+        if (object.material.emissive) {
             object.material.emissive.setHex(0x333333);
         }
 
-        // Notify UI
         onSelectCallback(object);
     }
 
@@ -65,6 +58,7 @@ export function initSelection(camera, canvas, transformControl, onSelectCallback
 
     return {
         getSelected: () => selectedObject,
-        deselect: deselect
+        deselect,
+        dispose: () => canvas.removeEventListener('pointerdown', onPointerDown)
     };
 }
