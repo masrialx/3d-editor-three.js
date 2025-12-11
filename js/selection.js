@@ -6,7 +6,6 @@ const mouse = new THREE.Vector2();
 let selectedObject = null;
 let hoveredObject = null;
 let outlinePass = null;
-let isDraggingTransform = false; // Track if transform is being dragged
 
 // Create outline effect using a simple approach
 function createOutlineEffect(renderer, scene, camera) {
@@ -70,14 +69,22 @@ function createOutlineEffect(renderer, scene, camera) {
 export function initSelection(camera, canvas, transformControl, onSelectCallback, requestRender, getIsDragging, orbitControls = null) {
     outlinePass = createOutlineEffect(null, null, camera);
     
-    // Track if we're currently dragging to prevent deselection
-    let pointerDownTime = 0;
-    let pointerDownPos = { x: 0, y: 0 };
-    const DRAG_THRESHOLD = 5; // pixels
+    // Track if transform controls are active to prevent raycasting interference
+    let isTransformActive = false;
+    
+    // Listen to transform control events to know when it's active
+    if (transformControl) {
+        transformControl.addEventListener('dragging-changed', (event) => {
+            isTransformActive = event.value;
+        });
+    }
     
     function onPointerMove(event) {
-        // Don't process hover if dragging transform
+        // Don't process hover if dragging transform or transform is active
         if (getIsDragging && getIsDragging()) {
+            return;
+        }
+        if (isTransformActive) {
             return;
         }
         
@@ -104,110 +111,65 @@ export function initSelection(camera, canvas, transformControl, onSelectCallback
     }
 
     function onPointerDown(event) {
-        if (event.button !== 0) return; // Only left click
+        // Only handle left click
+        if (event.button !== 0) return;
         
-        // Don't deselect if transform is being dragged
+        // CRITICAL: Don't process selection if transform controls are active or dragging
         if (getIsDragging && getIsDragging()) {
             return;
         }
-        
-        pointerDownTime = Date.now();
-        pointerDownPos = { x: event.clientX, y: event.clientY };
+        if (isTransformActive) {
+            return;
+        }
         
         const rect = canvas.getBoundingClientRect();
         mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
         mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-
-        checkIntersection();
-    }
-    
-    function onPointerUp(event) {
-        if (event.button !== 0) return;
         
-        // Check if this was a click (not a drag)
-        const pointerUpTime = Date.now();
-        const timeDiff = pointerUpTime - pointerDownTime;
-        const moveDist = Math.sqrt(
-            Math.pow(event.clientX - pointerDownPos.x, 2) +
-            Math.pow(event.clientY - pointerDownPos.y, 2)
-        );
-        
-        // Only deselect if it was a click (short time, small movement) and not dragging transform
-        if (timeDiff < 200 && moveDist < DRAG_THRESHOLD && !(getIsDragging && getIsDragging())) {
-            const rect = canvas.getBoundingClientRect();
-            mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-            mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-            
-            // Raycast priority: Transform handles > Selected object > Other objects > Ground
-            raycaster.setFromCamera(mouse, camera);
-            
-            // First check if clicking on transform controls (handles)
-            // TransformControls handles are part of the scene, so we check selected object first
-            if (selectedObject) {
-                const selectedIntersects = raycaster.intersectObject(selectedObject, false);
-                if (selectedIntersects.length > 0) {
-                    // Clicked on selected object - keep selection
-                    return;
-                }
-            }
-            
-            // Then check other objects
-            const intersects = raycaster.intersectObjects(getObjects(), false);
-            
-            if (intersects.length > 0) {
-                const object = intersects[0].object;
-                if (object !== selectedObject) {
-                    selectObject(object);
-                }
-            } else {
-                // Clicked empty space - deselect only if not dragging
-                if (!(getIsDragging && getIsDragging())) {
-                    deselect();
-                }
-            }
-            requestRender();
-        }
-    }
-
-    function checkIntersection() {
-        // Raycast priority: Transform handles > Selected object > Other objects
         raycaster.setFromCamera(mouse, camera);
         
-        // First check selected object (handles might be near it)
-        if (selectedObject) {
-            const selectedIntersects = raycaster.intersectObject(selectedObject, false);
-            if (selectedIntersects.length > 0) {
-                // Keep selection, don't change
-                return;
-            }
-        }
-        
-        // Then check other objects
+        // Check all objects for selection (exclude transform controls by only checking editable objects)
         const intersects = raycaster.intersectObjects(getObjects(), false);
-
+        
         if (intersects.length > 0) {
             const object = intersects[0].object;
+            
+            // Check if this is the currently selected object
+            if (object === selectedObject) {
+                // Clicking on selected object - keep selection, don't change
+                return;
+            }
+            
+            // Instant selection - select immediately on first click
             selectObject(object);
         } else {
-            // Only deselect if not dragging
-            if (!(getIsDragging && getIsDragging())) {
-                deselect();
-            }
+            // Clicked empty space - deselect
+            deselect();
         }
+        
         requestRender();
     }
 
     function selectObject(object) {
+        // Prevent selection if transform is active
+        if (isTransformActive || (getIsDragging && getIsDragging())) {
+            return;
+        }
+        
         if (selectedObject === object) return;
-
-        // Clear previous selection
+        
+        // Clear previous selection highlight (only visual, no transform modification)
         if (selectedObject) {
-            if (selectedObject.material.emissive) {
+            if (selectedObject.material && selectedObject.material.emissive !== undefined) {
                 selectedObject.material.emissive.setHex(0x000000);
+                selectedObject.material.emissiveIntensity = 0;
             }
         }
 
         selectedObject = object;
+        
+        // Attach transform control (this only shows handles, doesn't modify object transform)
+        // The transform control handles are separate from the object itself
         transformControl.attach(object);
         transformControl.visible = true;
         
@@ -220,8 +182,9 @@ export function initSelection(camera, canvas, transformControl, onSelectCallback
             orbitControls.target.copy(object.position);
         }
 
-        // Visual feedback: selection highlight
-        if (object.material.emissive) {
+        // Visual feedback: selection highlight (ONLY visual, no position/rotation/scale modification)
+        // We only modify the emissive property for highlighting, not the object's transform
+        if (object.material && object.material.emissive !== undefined) {
             object.material.emissive.setHex(0x007acc);
             object.material.emissiveIntensity = 0.6;
         }
@@ -234,14 +197,15 @@ export function initSelection(camera, canvas, transformControl, onSelectCallback
     }
 
     function deselect() {
-        // Don't deselect if dragging
-        if (getIsDragging && getIsDragging()) {
+        // Don't deselect if dragging or transform is active
+        if (isTransformActive || (getIsDragging && getIsDragging())) {
             return;
         }
         
         if (selectedObject) {
-            if (selectedObject.material.emissive) {
+            if (selectedObject.material && selectedObject.material.emissive) {
                 selectedObject.material.emissive.setHex(0x000000);
+                selectedObject.material.emissiveIntensity = 0;
             }
         }
         selectedObject = null;
@@ -250,8 +214,9 @@ export function initSelection(camera, canvas, transformControl, onSelectCallback
         onSelectCallback(null);
     }
 
+    // Use pointerdown only for instant, smooth selection
+    // Remove pointerup to prevent double-click issues
     canvas.addEventListener('pointerdown', onPointerDown);
-    canvas.addEventListener('pointerup', onPointerUp);
     canvas.addEventListener('pointermove', onPointerMove);
 
     return {
@@ -263,7 +228,6 @@ export function initSelection(camera, canvas, transformControl, onSelectCallback
         },
         dispose: () => {
             canvas.removeEventListener('pointerdown', onPointerDown);
-            canvas.removeEventListener('pointerup', onPointerUp);
             canvas.removeEventListener('pointermove', onPointerMove);
         }
     };

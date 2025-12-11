@@ -95,7 +95,7 @@ export function initControls(
     // Professional TransformControls with stability fixes
     const transform = new TransformControls(camera, renderer.domElement);
     
-    // Track dragging state to prevent accidental deselection
+    // Track dragging state to prevent accidental deselection and raycast interference
     let isDragging = false;
     let dragStartTime = 0;
     
@@ -104,12 +104,12 @@ export function initControls(
         isDragging = event.value;
         
         if (event.value) {
-            // Drag start: lock OrbitControls
+            // Drag start: lock OrbitControls and prevent raycasting
             dragStartTime = Date.now();
             orbit.enabled = false;
             if (onTransformStart) onTransformStart();
         } else {
-            // Drag end: small delay before re-enabling to prevent jitter
+            // Drag end: re-enable OrbitControls after a small delay to prevent jitter
             const dragDuration = Date.now() - dragStartTime;
             const minDragTime = 50; // Minimum drag time to consider it intentional
             
@@ -117,10 +117,12 @@ export function initControls(
                 // Very short drag - might be accidental, wait a bit
                 setTimeout(() => {
                     orbit.enabled = true;
-                }, 100);
+                }, 150);
             } else {
-                // Normal drag - re-enable immediately
-                orbit.enabled = true;
+                // Normal drag - re-enable after short delay to prevent selection flicker
+                setTimeout(() => {
+                    orbit.enabled = true;
+                }, 100);
             }
             
             if (onTransformEnd) onTransformEnd();

@@ -438,39 +438,8 @@ function addObjectWithHistory(type, addFn) {
         // Auto-select the new object
         selectionManager.selectObject(obj);
         
-        // Auto-frame first object once only (without jumping to top view)
-        if (!firstObjectCreated) {
-            firstObjectCreated = true;
-            
-            // Smoothly frame the first object with isometric-like view (not top view)
-            setTimeout(() => {
-                const wasOrbitEnabledDuringFrame = orbit ? orbit.enabled : true;
-                if (orbit) orbit.enabled = false;
-                
-                const frame = frameObjects([obj], camera, 0.4);
-                if (frame && frame.position && frame.target) {
-                    // Ensure we use isometric-like view, not top view
-                    // frameObjects already calculates this, but ensure target is object center
-                    orbit.target.copy(obj.position);
-                    
-                    animateCameraTo(
-                        camera,
-                        frame.position,
-                        frame.target,
-                        orbit,
-                        requestRender,
-                        500,
-                        (active) => { cameraAnimationActive = active; }
-                    );
-                    
-                    setTimeout(() => {
-                        if (orbit) orbit.enabled = wasOrbitEnabledDuringFrame;
-                    }, 550);
-                } else {
-                    if (orbit) orbit.enabled = wasOrbitEnabledDuringFrame;
-                }
-            }, 100);
-        }
+        // NO CAMERA MOVEMENT - Keep user's camera alignment exactly as they set it
+        // User can manually frame if needed using Frame Selected button (F key)
         
         // Re-enable OrbitControls after object creation
         if (orbit) {
