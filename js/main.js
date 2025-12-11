@@ -18,12 +18,18 @@ let scene = null;
 let camera = null;
 let renderer = null;
 
+// Track if camera animation is active to prevent OrbitControls interference
+let cameraAnimationActive = false;
+
 const requestRender = () => {
     if (renderPending) return;
     renderPending = true;
     requestAnimationFrame(() => {
         renderPending = false;
-        if (orbit) orbit.update();
+        // Only update OrbitControls if camera animation is not active (prevents jitter)
+        if (orbit && !cameraAnimationActive) {
+            orbit.update();
+        }
         if (renderer && scene && camera) {
             renderer.render(scene, camera);
         }
@@ -48,6 +54,7 @@ let snapConfig = {
     scale: 0.1
 };
 let history = null;
+let firstObjectCreated = false; // Track if first object has been created for auto-framing
 
 const ui = {
     posX: document.getElementById('pos-x'),
@@ -123,7 +130,8 @@ selectionManager = initSelection(
     updateUI(obj);
     },
     requestRender,
-    getIsDragging
+    getIsDragging,
+    orbit
 );
 
 history = createHistory({
@@ -134,31 +142,32 @@ history = createHistory({
 history.record(); // initial empty state
 
 // Frame workspace after controls are initialized with smooth animation
+// Only on initial load, not during object creation
+// Set initial camera to natural mid-distance viewing position
 setTimeout(() => {
     if (orbit && camera && scene && gridHelper) {
         try {
-            const initialFrame = frameWorkspace(scene, camera, [], gridHelper);
-            if (initialFrame && initialFrame.position) {
-                // Smoothly animate to initial frame for better UX
-                animateCameraTo(
-                    camera,
-                    initialFrame.position,
-                    initialFrame.target,
-                    orbit,
-                    requestRender,
-                    600
-                );
-            }
+            // Set initial target to where objects will appear (y=1 for object center)
+            orbit.target.set(0, 1, 0);
+            
+            // Use the camera position already set in scene.js (isometric-like, distance ~8)
+            // Just ensure it's looking at the target
+            camera.lookAt(orbit.target);
+            
+            // Update OrbitControls to match current camera position
+            orbit.update();
+            
+            requestRender();
         } catch (error) {
-            console.warn('Could not frame workspace initially:', error);
-            // Keep default camera position but ensure it shows workspace
-            camera.position.set(20, 20, 20);
-            camera.lookAt(0, 10, 0);
-            orbit.target.set(0, 10, 0);
+            console.warn('Could not initialize camera:', error);
+            // Fallback: Keep default camera position
+            camera.position.set(8, 5, 8);
+            camera.lookAt(0, 1, 0);
+            orbit.target.set(0, 1, 0);
             requestRender();
         }
     }
-}, 100);
+}, 50);
 
 const snapToggle = document.getElementById('snap-toggle');
 const undoBtn = document.getElementById('undo-btn');
@@ -185,32 +194,86 @@ function frameSelected() {
             return;
         }
         
+        // Temporarily disable OrbitControls updates during framing to prevent jitter
+        const wasOrbitEnabled = orbit ? orbit.enabled : true;
+        if (orbit) {
+            orbit.enabled = false;
+        }
+        
         const frame = frameObjects([selected], camera, 0.3);
         if (frame && frame.position && frame.target) {
-            animateCameraTo(camera, frame.position, frame.target, orbit, requestRender, 400);
+            // Smooth animation without OrbitControls interference
+            animateCameraTo(
+                camera, 
+                frame.position, 
+                frame.target, 
+                orbit, 
+                requestRender, 
+                400,
+                (active) => { cameraAnimationActive = active; }
+            );
+            
+            // Re-enable OrbitControls after animation completes
+            setTimeout(() => {
+                if (orbit) {
+                    orbit.enabled = wasOrbitEnabled;
+                }
+            }, 450);
+            
             showNotification('Framed selected object', 'success');
         } else {
             console.error('Invalid frame data:', frame);
+            if (orbit) {
+                orbit.enabled = wasOrbitEnabled;
+            }
             showNotification('Could not frame selected object', 'error');
         }
     } catch (error) {
         console.error('Error framing selected object:', error);
+        if (orbit) {
+            orbit.enabled = true;
+        }
         showNotification('Error framing selected object: ' + error.message, 'error');
     }
 }
 
 function frameAll() {
     try {
+        // Temporarily disable OrbitControls updates during framing to prevent jitter
+        const wasOrbitEnabled = orbit ? orbit.enabled : true;
+        if (orbit) {
+            orbit.enabled = false;
+        }
+        
         const objects = getObjects();
         if (objects.length === 0) {
             // Frame workspace if no objects
             const frame = frameWorkspace(scene, camera, [], gridHelper);
             if (frame && frame.position && frame.target) {
                 orbit.target.set(0, 0, 0); // Reset pivot to origin
-                animateCameraTo(camera, frame.position, frame.target, orbit, requestRender, 400);
+                animateCameraTo(
+                    camera, 
+                    frame.position, 
+                    frame.target, 
+                    orbit, 
+                    requestRender, 
+                    400,
+                    (active) => { cameraAnimationActive = active; }
+                );
+                
+                // Re-enable OrbitControls after animation completes
+                setTimeout(() => {
+                    if (orbit) {
+                        orbit.enabled = wasOrbitEnabled;
+                    }
+                }, 450);
+                
                 showNotification('Framed workspace', 'success');
             } else {
                 console.error('Invalid frame data:', frame);
+                if (orbit) {
+                    orbit.enabled = wasOrbitEnabled;
+                }
                 showNotification('Could not frame workspace', 'error');
             }
             return;
@@ -220,14 +283,36 @@ function frameAll() {
         if (frame && frame.position && frame.target) {
             // Industry standard: OrbitControls pivot to scene center
             orbit.target.copy(frame.target);
-            animateCameraTo(camera, frame.position, frame.target, orbit, requestRender, 400);
+            animateCameraTo(
+                camera, 
+                frame.position, 
+                frame.target, 
+                orbit, 
+                requestRender, 
+                400,
+                (active) => { cameraAnimationActive = active; }
+            );
+            
+            // Re-enable OrbitControls after animation completes
+            setTimeout(() => {
+                if (orbit) {
+                    orbit.enabled = wasOrbitEnabled;
+                }
+            }, 450);
+            
             showNotification(`Framed ${objects.length} object(s)`, 'success');
         } else {
             console.error('Invalid frame data:', frame);
+            if (orbit) {
+                orbit.enabled = wasOrbitEnabled;
+            }
             showNotification('Could not frame objects', 'error');
         }
     } catch (error) {
         console.error('Error framing all objects:', error);
+        if (orbit) {
+            orbit.enabled = true;
+        }
         showNotification('Error framing objects: ' + error.message, 'error');
     }
 }
@@ -317,10 +402,16 @@ const addButtons = {
     [OBJECT_TYPES.CYLINDER]: document.getElementById('add-cylinder')
 };
 
-// Professional object creation with animation and camera framing
+// Professional object creation - instant, stable, with smart camera targeting
 function addObjectWithHistory(type, addFn) {
     if (!history) return;
     history.record();
+    
+    // Temporarily disable OrbitControls updates to prevent jitter
+    const wasOrbitEnabled = orbit ? orbit.enabled : true;
+    if (orbit) {
+        orbit.enabled = false;
+    }
     
     // Create object with snap-to-grid option and conflict prevention
     const obj = addFn(scene, { 
@@ -336,56 +427,78 @@ function addObjectWithHistory(type, addFn) {
             delete obj.userData.positionShifted;
         }
         
-        // Subtle animation: start small and scale up
-        obj.scale.set(0.1, 0.1, 0.1);
-        const targetScale = 1;
-        const duration = 200; // milliseconds
-        const startTime = Date.now();
+        // Professional standard: instant appearance, no animation
+        // Object appears at full scale immediately for stability
+        obj.scale.set(1, 1, 1);
         
-        function animateCreation() {
-            const elapsed = Date.now() - startTime;
-            const progress = Math.min(elapsed / duration, 1);
-            // Ease-out animation
-            const easeProgress = 1 - Math.pow(1 - progress, 3);
-            const currentScale = 0.1 + (targetScale - 0.1) * easeProgress;
-            obj.scale.set(currentScale, currentScale, currentScale);
-            
-            if (progress < 1) {
-                requestAnimationFrame(animateCreation);
-            } else {
-                obj.scale.set(targetScale, targetScale, targetScale);
-            }
-            requestRender();
-        }
-        
-        animateCreation();
+        // Professional: Set OrbitControls target to object center for proper zoom behavior
+        // This ensures zoom always moves toward the object, not drifting away
+        orbit.target.copy(obj.position);
         
         // Auto-select the new object
         selectionManager.selectObject(obj);
         
-        // Professional camera framing: smoothly frame the new object and workspace
-        frameNewObject(obj);
+        // Auto-frame first object once only (without jumping to top view)
+        if (!firstObjectCreated) {
+            firstObjectCreated = true;
+            
+            // Smoothly frame the first object with isometric-like view (not top view)
+            setTimeout(() => {
+                const wasOrbitEnabledDuringFrame = orbit ? orbit.enabled : true;
+                if (orbit) orbit.enabled = false;
+                
+                const frame = frameObjects([obj], camera, 0.4);
+                if (frame && frame.position && frame.target) {
+                    // Ensure we use isometric-like view, not top view
+                    // frameObjects already calculates this, but ensure target is object center
+                    orbit.target.copy(obj.position);
+                    
+                    animateCameraTo(
+                        camera,
+                        frame.position,
+                        frame.target,
+                        orbit,
+                        requestRender,
+                        500,
+                        (active) => { cameraAnimationActive = active; }
+                    );
+                    
+                    setTimeout(() => {
+                        if (orbit) orbit.enabled = wasOrbitEnabledDuringFrame;
+                    }, 550);
+                } else {
+                    if (orbit) orbit.enabled = wasOrbitEnabledDuringFrame;
+                }
+            }, 100);
+        }
         
-        // UI updates immediately (handled by selectObject callback)
+        // Re-enable OrbitControls after object creation
+        if (orbit) {
+            orbit.enabled = wasOrbitEnabled;
+        }
+        
+        // Single render call - no extra renders
         requestRender();
+    } else {
+        // Re-enable OrbitControls even if object creation failed
+        if (orbit) {
+            orbit.enabled = wasOrbitEnabled;
+        }
     }
 }
 
-// Frame newly created object smoothly with auto-adjustment
-// Industry standard: OrbitControls pivot snaps to new object
+// Frame object - only called when user explicitly requests it (Frame Selected button)
+// This function is NOT called automatically during object creation
 function frameNewObject(object) {
     if (!object) return;
     
-    // Get all objects including the new one
+    // Get all objects including the selected one
     const allObjects = getObjects();
     
     // Frame all objects to ensure workspace remains visible
     const frame = frameObjects(allObjects, camera, 0.3);
     
-    // Industry standard: Snap OrbitControls pivot to new object center
-    orbit.target.copy(object.position);
-    
-    // Smoothly animate camera to frame the new object
+    // Smoothly animate camera to frame the object
     animateCameraTo(camera, frame.position, frame.target, orbit, requestRender, 400);
 }
 
@@ -411,6 +524,14 @@ document.getElementById('delete-btn').addEventListener('click', () => {
         disposeObject(selected);
         removeObjectFromRegistry(selected);
         selectionManager.deselect();
+        
+        // Reset first object flag if scene is now empty
+        if (getObjects().length === 0) {
+            firstObjectCreated = false;
+            // Reset OrbitControls target to scene center
+            orbit.target.set(0, 1, 0);
+        }
+        
         requestRender();
     } catch (error) {
         console.error('Delete error:', error);
@@ -428,11 +549,36 @@ document.getElementById('clear-scene').addEventListener('click', () => {
     });
     clearObjectsArray();
     
-    // Industry standard: Frame workspace after clear
+    // Reset first object flag since scene is now empty
+    firstObjectCreated = false;
+    
+    // Reset OrbitControls target to scene center
+    orbit.target.set(0, 1, 0);
+    
+    // Industry standard: Frame workspace after clear (smooth, no jitter)
     setTimeout(() => {
+        const wasOrbitEnabled = orbit ? orbit.enabled : true;
+        if (orbit) orbit.enabled = false;
+        
         const frame = frameWorkspace(scene, camera, [], gridHelper);
-        orbit.target.set(0, 0, 0); // Reset pivot to origin
-        animateCameraTo(camera, frame.position, frame.target, orbit, requestRender, 400);
+        if (frame && frame.position && frame.target) {
+            orbit.target.set(0, 1, 0); // Reset pivot to scene center (where objects appear)
+            animateCameraTo(
+                camera, 
+                frame.position, 
+                frame.target, 
+                orbit, 
+                requestRender, 
+                400,
+                (active) => { cameraAnimationActive = active; }
+            );
+            
+            setTimeout(() => {
+                if (orbit) orbit.enabled = wasOrbitEnabled;
+            }, 450);
+        } else {
+            if (orbit) orbit.enabled = wasOrbitEnabled;
+        }
     }, 50);
     
     requestRender();
@@ -465,24 +611,67 @@ fileInput.addEventListener('change', (e) => {
     history.record();
     const reader = new FileReader();
     reader.onload = (event) => {
-        const result = importScene(event.target.result, scene, selectionManager, camera, orbit);
-        // Auto-frame all objects after import (if camera wasn't restored)
-        setTimeout(() => {
-            const objects = getObjects();
-            if (objects.length > 0) {
-                // Only frame if camera wasn't restored from file
-                if (!result || !result.cameraRestored) {
-                    frameAll();
+            const result = importScene(event.target.result, scene, selectionManager, camera, orbit);
+            // Auto-frame all objects after import (if camera wasn't restored)
+            // Use smooth animation to prevent jitter
+            setTimeout(() => {
+                const objects = getObjects();
+                if (objects.length > 0) {
+                    // Only frame if camera wasn't restored from file
+                    if (!result || !result.cameraRestored) {
+                        // Temporarily disable OrbitControls during framing
+                        const wasOrbitEnabled = orbit ? orbit.enabled : true;
+                        if (orbit) orbit.enabled = false;
+                        
+                        const frame = frameObjects(objects, camera, 0.3);
+                        if (frame && frame.position && frame.target) {
+                            orbit.target.copy(frame.target);
+                            animateCameraTo(
+                                camera, 
+                                frame.position, 
+                                frame.target, 
+                                orbit, 
+                                requestRender, 
+                                400,
+                                (active) => { cameraAnimationActive = active; }
+                            );
+                            
+                            setTimeout(() => {
+                                if (orbit) orbit.enabled = wasOrbitEnabled;
+                            }, 450);
+                        } else {
+                            if (orbit) orbit.enabled = wasOrbitEnabled;
+                        }
+                    } else {
+                        requestRender();
+                    }
                 } else {
-                    requestRender();
+                    // Frame workspace if no objects
+                    const wasOrbitEnabled = orbit ? orbit.enabled : true;
+                    if (orbit) orbit.enabled = false;
+                    
+                    const frame = frameWorkspace(scene, camera, [], gridHelper);
+                    if (frame && frame.position && frame.target) {
+                        orbit.target.set(0, 0, 0);
+                        animateCameraTo(
+                            camera, 
+                            frame.position, 
+                            frame.target, 
+                            orbit, 
+                            requestRender, 
+                            400,
+                            (active) => { cameraAnimationActive = active; }
+                        );
+                        
+                        setTimeout(() => {
+                            if (orbit) orbit.enabled = wasOrbitEnabled;
+                        }, 450);
+                    } else {
+                        if (orbit) orbit.enabled = wasOrbitEnabled;
+                    }
                 }
-            } else {
-                // Frame workspace if no objects
-                const frame = frameWorkspace(scene, camera, [], gridHelper);
-                animateCameraTo(camera, frame.position, frame.target, orbit, requestRender, 400);
-            }
-        }, 100);
-        requestRender();
+            }, 100);
+            requestRender();
     };
     reader.onerror = () => {
         console.error('File read error');
@@ -516,19 +705,62 @@ container.addEventListener('drop', (e) => {
         reader.onload = (event) => {
             const result = importScene(event.target.result, scene, selectionManager, camera, orbit);
             // Auto-frame all objects after import (if camera wasn't restored)
+            // Use smooth animation to prevent jitter
             setTimeout(() => {
                 const objects = getObjects();
                 if (objects.length > 0) {
                     // Only frame if camera wasn't restored from file
                     if (!result || !result.cameraRestored) {
-                        frameAll();
+                        // Temporarily disable OrbitControls during framing
+                        const wasOrbitEnabled = orbit ? orbit.enabled : true;
+                        if (orbit) orbit.enabled = false;
+                        
+                        const frame = frameObjects(objects, camera, 0.3);
+                        if (frame && frame.position && frame.target) {
+                            orbit.target.copy(frame.target);
+                            animateCameraTo(
+                                camera, 
+                                frame.position, 
+                                frame.target, 
+                                orbit, 
+                                requestRender, 
+                                400,
+                                (active) => { cameraAnimationActive = active; }
+                            );
+                            
+                            setTimeout(() => {
+                                if (orbit) orbit.enabled = wasOrbitEnabled;
+                            }, 450);
+                        } else {
+                            if (orbit) orbit.enabled = wasOrbitEnabled;
+                        }
                     } else {
                         requestRender();
                     }
                 } else {
                     // Frame workspace if no objects
+                    const wasOrbitEnabled = orbit ? orbit.enabled : true;
+                    if (orbit) orbit.enabled = false;
+                    
                     const frame = frameWorkspace(scene, camera, [], gridHelper);
-                    animateCameraTo(camera, frame.position, frame.target, orbit, requestRender, 400);
+                    if (frame && frame.position && frame.target) {
+                        orbit.target.set(0, 0, 0);
+                        animateCameraTo(
+                            camera, 
+                            frame.position, 
+                            frame.target, 
+                            orbit, 
+                            requestRender, 
+                            400,
+                            (active) => { cameraAnimationActive = active; }
+                        );
+                        
+                        setTimeout(() => {
+                            if (orbit) orbit.enabled = wasOrbitEnabled;
+                        }, 450);
+                    } else {
+                        if (orbit) orbit.enabled = wasOrbitEnabled;
+                    }
                 }
             }, 100);
             requestRender();

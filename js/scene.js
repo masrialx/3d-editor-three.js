@@ -53,20 +53,21 @@ export function initScene(container, requestRender) {
     fillLight.position.set(-5, 3, -5);
     scene.add(fillLight);
 
-    // Industry standard initial camera position: isometric-like view
-    // x=45°, y=30° elevation, distance ~10 units
-    const initialDistance = 10;
+    // Professional initial camera position: isometric-like view at mid-distance
+    // x=45°, y=30° elevation, distance ~8 units (optimal for viewing 1x1x1 objects)
+    const initialDistance = 8;
     const horizontalAngle = 45 * (Math.PI / 180);
     const elevationAngle = 30 * (Math.PI / 180);
     const horizontalDist = initialDistance * Math.cos(elevationAngle);
     const verticalDist = initialDistance * Math.sin(elevationAngle);
     
+    // Position camera at natural viewing distance
     camera.position.set(
         horizontalDist * Math.cos(horizontalAngle),
-        verticalDist + 5, // Center vertically
+        verticalDist + 1, // Look at scene center (y=0 for ground, y=1 for object center)
         horizontalDist * Math.sin(horizontalAngle)
     );
-    camera.lookAt(0, 5, 0); // Look at scene center
+    camera.lookAt(0, 1, 0); // Look at scene center where objects will appear
 
     const handleResize = () => {
         const newWidth = Math.max(container.clientWidth || 800, 800);

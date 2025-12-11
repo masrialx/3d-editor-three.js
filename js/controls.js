@@ -13,21 +13,23 @@ export function initControls(
     orbit.enableDamping = true;
     orbit.dampingFactor = 0.1;
     
-    // Industry standard: rotation center = scene origin (0,0,0)
-    orbit.target.set(0, 0, 0);
+    // Professional: rotation center = scene origin (0,1,0) - where objects appear
+    // Objects spawn at (0, objectHeight, 0) where objectHeight ~0.5-1, so center at y=1
+    orbit.target.set(0, 1, 0);
     
-    // Calculate optimal zoom limits
+    // Calculate optimal zoom limits to prevent camera from flying away
     const workspaceSize = Math.max(
         WORKSPACE_BOUNDS.maxX - WORKSPACE_BOUNDS.minX,
         WORKSPACE_BOUNDS.maxZ - WORKSPACE_BOUNDS.minZ,
         WORKSPACE_BOUNDS.maxY - WORKSPACE_BOUNDS.minY
     );
     
-    // Min distance: close enough to see details but not inside objects
-    orbit.minDistance = Math.max(2, workspaceSize * 0.1);
+    // Min distance: close enough to see details (1 unit) but not inside objects
+    orbit.minDistance = 1;
     
-    // Max distance: far enough to see entire workspace
-    orbit.maxDistance = workspaceSize * 3;
+    // Max distance: far enough to see entire workspace but not too far
+    // Cap at reasonable distance to prevent camera from going out of scene
+    orbit.maxDistance = Math.min(workspaceSize * 2, 30);
     
     // Allow full rotation but prevent going below floor
     orbit.minPolarAngle = 0;
@@ -48,23 +50,16 @@ export function initControls(
         maxZ: WORKSPACE_BOUNDS.maxZ + 5
     };
     
-    // Prevent camera from going below floor
-    orbit.addEventListener('change', () => {
-        if (camera.position.y < 1.0) {
-            camera.position.y = 1.0;
-        }
-        
-        // Clamp pan target to workspace bounds
-        orbit.target.x = Math.max(panBounds.minX, Math.min(panBounds.maxX, orbit.target.x));
-        orbit.target.y = Math.max(panBounds.minY, Math.min(panBounds.maxY, orbit.target.y));
-        orbit.target.z = Math.max(panBounds.minZ, Math.min(panBounds.maxZ, orbit.target.z));
-        
-        requestRender();
-    });
-    
-    // Prevent camera from getting too close
+    // Professional camera stabilization: prevent camera from flying away or going out of bounds
     orbit.addEventListener('change', () => {
         const distance = camera.position.distanceTo(orbit.target);
+        
+        // Prevent camera from going below floor
+        if (camera.position.y < 0.5) {
+            camera.position.y = 0.5;
+        }
+        
+        // Enforce min distance - prevent getting too close
         if (distance < orbit.minDistance) {
             const direction = new THREE.Vector3()
                 .subVectors(camera.position, orbit.target)
@@ -73,6 +68,28 @@ export function initControls(
                 direction.multiplyScalar(orbit.minDistance)
             );
         }
+        
+        // Enforce max distance - prevent camera from flying away
+        if (distance > orbit.maxDistance) {
+            const direction = new THREE.Vector3()
+                .subVectors(camera.position, orbit.target)
+                .normalize();
+            camera.position.copy(orbit.target).add(
+                direction.multiplyScalar(orbit.maxDistance)
+            );
+        }
+        
+        // Clamp pan target to workspace bounds (prevent target from drifting)
+        orbit.target.x = Math.max(panBounds.minX, Math.min(panBounds.maxX, orbit.target.x));
+        orbit.target.y = Math.max(panBounds.minY, Math.min(panBounds.maxY, orbit.target.y));
+        orbit.target.z = Math.max(panBounds.minZ, Math.min(panBounds.maxZ, orbit.target.z));
+        
+        // Ensure camera stays within reasonable bounds
+        camera.position.x = Math.max(-50, Math.min(50, camera.position.x));
+        camera.position.y = Math.max(0.5, Math.min(50, camera.position.y));
+        camera.position.z = Math.max(-50, Math.min(50, camera.position.z));
+        
+        requestRender();
     });
 
     // Professional TransformControls with stability fixes

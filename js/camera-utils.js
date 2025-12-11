@@ -168,6 +168,8 @@ export function frameObjects(objects, camera, margin = 0.2) {
 
 /**
  * Smoothly animate camera to new position
+ * Professional: Stable animation without jitter, no OrbitControls interference
+ * @param {Function} setAnimationActive - Callback to set animation state (prevents OrbitControls updates)
  */
 export function animateCameraTo(
     camera,
@@ -175,14 +177,23 @@ export function animateCameraTo(
     targetLookAt,
     orbitControls,
     requestRender,
-    duration = 500
+    duration = 500,
+    setAnimationActive = null
 ) {
     const startPosition = camera.position.clone();
     const startTarget = orbitControls.target.clone();
     
     const startTime = Date.now();
+    let animationActive = true;
+    
+    // Notify that animation is starting
+    if (setAnimationActive) {
+        setAnimationActive(true);
+    }
     
     function animate() {
+        if (!animationActive) return;
+        
         const elapsed = Date.now() - startTime;
         const progress = Math.min(elapsed / duration, 1);
         
@@ -195,9 +206,10 @@ export function animateCameraTo(
         // Interpolate orbit target
         orbitControls.target.lerpVectors(startTarget, targetLookAt, easeProgress);
         
-        // Update camera to look at target
+        // Update camera to look at target (only once per frame, no jitter)
         camera.lookAt(orbitControls.target);
         
+        // Request render (will be handled by main render loop)
         requestRender();
         
         if (progress < 1) {
@@ -207,6 +219,13 @@ export function animateCameraTo(
             camera.position.copy(targetPosition);
             orbitControls.target.copy(targetLookAt);
             camera.lookAt(orbitControls.target);
+            animationActive = false;
+            
+            // Notify that animation is complete
+            if (setAnimationActive) {
+                setAnimationActive(false);
+            }
+            
             requestRender();
         }
     }

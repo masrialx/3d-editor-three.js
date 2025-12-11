@@ -67,7 +67,7 @@ function createOutlineEffect(renderer, scene, camera) {
     };
 }
 
-export function initSelection(camera, canvas, transformControl, onSelectCallback, requestRender, getIsDragging) {
+export function initSelection(camera, canvas, transformControl, onSelectCallback, requestRender, getIsDragging, orbitControls = null) {
     outlinePass = createOutlineEffect(null, null, camera);
     
     // Track if we're currently dragging to prevent deselection
@@ -213,6 +213,12 @@ export function initSelection(camera, canvas, transformControl, onSelectCallback
         
         // Set pivot to object center (industry standard)
         transformControl.setSpace('world');
+        
+        // Professional: Update OrbitControls target to object center for proper zoom behavior
+        // This ensures zoom, rotate, and pan behave around the object center
+        if (orbitControls) {
+            orbitControls.target.copy(object.position);
+        }
 
         // Visual feedback: selection highlight
         if (object.material.emissive) {
