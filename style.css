@@ -22,6 +22,7 @@ h3 { font-size: 0.9rem; color: #aaa; text-transform: uppercase; letter-spacing: 
 .panel { background: rgba(0,0,0,0.2); padding: 10px; border-radius: 4px; }
 
 .button-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 5px; }
+.button-grid.two-col { grid-template-columns: 1fr 1fr; }
 
 button { background: var(--border); color: white; border: none; padding: 8px; cursor: pointer; border-radius: 3px; font-size: 0.85rem; transition: background 0.2s; width: 100%; margin-bottom: 5px; }
 button:hover { background: var(--accent); }

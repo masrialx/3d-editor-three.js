@@ -3,16 +3,18 @@ import { getObjects, addObjectToRegistry, clearObjectsArray } from './objects.js
 import { disposeObject, isValidNumberArray, safeParseNumber } from './utils.js';
 import { DEFAULT_COLORS, EXPORT_FILE_NAME, OBJECT_TYPES } from './constants.js';
 
-export function exportScene() {
-    const objects = getObjects();
-    const data = objects.map((obj) => ({
+export function serializeScene() {
+    return getObjects().map((obj) => ({
         type: obj.userData.type,
         position: obj.position.toArray(),
-        rotation: obj.rotation.toArray(),
+        rotation: [obj.rotation.x, obj.rotation.y, obj.rotation.z],
         scale: obj.scale.toArray(),
         color: obj.material.color.getHex()
     }));
+}
 
+export function exportScene() {
+    const data = serializeScene();
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
 
@@ -40,50 +42,52 @@ function validateItem(item) {
     if (!Object.values(OBJECT_TYPES).includes(item.type)) return false;
     if (!isValidNumberArray(item.position, 3)) return false;
     if (!isValidNumberArray(item.scale, 3)) return false;
-    if (!isValidNumberArray(item.rotation, 3)) return false;
+    if (!Array.isArray(item.rotation) || item.rotation.length < 3) return false;
+    if (![0, 1, 2].every((i) => Number.isFinite(item.rotation[i]))) return false;
     return true;
+}
+
+export function loadSceneData(data, scene, selectionManager) {
+    if (!Array.isArray(data)) throw new Error('Invalid format: root should be an array');
+
+    selectionManager.deselect();
+    const existingObjects = [...getObjects()];
+    existingObjects.forEach((obj) => {
+        scene.remove(obj);
+        disposeObject(obj);
+    });
+    clearObjectsArray();
+
+    data.forEach((item) => {
+        if (!validateItem(item)) return;
+
+        const geometry = buildGeometry(item.type);
+        if (!geometry) return;
+
+        const material = new THREE.MeshStandardMaterial({
+            color: safeParseNumber(item.color, DEFAULT_COLORS[item.type])
+        });
+        const mesh = new THREE.Mesh(geometry, material);
+
+        mesh.position.fromArray(item.position);
+        mesh.rotation.fromArray(item.rotation.slice(0, 3));
+        mesh.scale.fromArray(item.scale);
+
+        mesh.userData = { isEditable: true, type: item.type };
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+
+        scene.add(mesh);
+        addObjectToRegistry(mesh);
+    });
 }
 
 export function importScene(jsonString, scene, selectionManager) {
     try {
         const data = JSON.parse(jsonString);
-        if (!Array.isArray(data)) throw new Error('Invalid format: root should be an array');
-
-        selectionManager.deselect();
-        const existingObjects = [...getObjects()];
-        existingObjects.forEach((obj) => {
-            scene.remove(obj);
-            disposeObject(obj);
-        });
-        clearObjectsArray();
-
-        data.forEach((item) => {
-            if (!validateItem(item)) {
-                return;
-            }
-
-            const geometry = buildGeometry(item.type);
-            if (!geometry) return;
-
-            const material = new THREE.MeshStandardMaterial({
-                color: safeParseNumber(item.color, DEFAULT_COLORS[item.type])
-            });
-            const mesh = new THREE.Mesh(geometry, material);
-
-            mesh.position.fromArray(item.position);
-            mesh.rotation.fromArray(item.rotation.slice(0, 3));
-            mesh.scale.fromArray(item.scale);
-
-            mesh.userData = { isEditable: true, type: item.type };
-            mesh.castShadow = true;
-            mesh.receiveShadow = true;
-
-            scene.add(mesh);
-            addObjectToRegistry(mesh);
-        });
-
+        loadSceneData(data, scene, selectionManager);
         alert('Scene loaded successfully!');
-    } catch (e) {
+    } catch (_e) {
         alert('Failed to load JSON. Please verify the file content.');
     }
 }

@@ -3,9 +3,10 @@ import { initControls } from './controls.js';
 import { addBox, addSphere, addCylinder, getObjects, clearObjectsArray } from './objects.js';
 import { initSelection } from './selection.js';
 import { updateObjectPosition } from './transform.js';
-import { exportScene, importScene } from './persistence.js';
+import { exportScene, importScene, serializeScene, loadSceneData } from './persistence.js';
 import { disposeObject } from './utils.js';
 import { OBJECT_TYPES } from './constants.js';
+import { createHistory } from './history.js';
 
 const container = document.getElementById('canvas-container');
 
@@ -21,6 +22,9 @@ const requestRender = () => {
 };
 
 const { scene, camera, renderer } = initScene(container, requestRender);
+let selectionManager = null;
+let snapEnabled = false;
+let history = null;
 
 const ui = {
     posX: document.getElementById('pos-x'),
@@ -42,14 +46,24 @@ function updateUI(object) {
     ui.posZ.value = object.position.z.toFixed(2);
 }
 
+let transformSnapshotTaken = false;
 const { orbit, transform } = initControls(camera, renderer, scene, {
     onTransformChange: (obj) => {
         updateUI(obj);
     },
+    onTransformStart: () => {
+        if (!transformSnapshotTaken) {
+            history.record();
+            transformSnapshotTaken = true;
+        }
+    },
+    onTransformEnd: () => {
+        transformSnapshotTaken = false;
+    },
     requestRender
 });
 
-const selectionManager = initSelection(
+selectionManager = initSelection(
     camera,
     renderer.domElement,
     transform,
@@ -59,12 +73,35 @@ const selectionManager = initSelection(
     requestRender
 );
 
+history = createHistory({
+    serialize: () => serializeScene(),
+    load: (data) => loadSceneData(data, scene, selectionManager),
+    requestRender
+});
+history.record(); // initial empty state
+
+history.record(); // initial empty state
+
+const snapToggle = document.getElementById('snap-toggle');
+const undoBtn = document.getElementById('undo-btn');
+const redoBtn = document.getElementById('redo-btn');
+
+function applySnap() {
+    if (snapEnabled) {
+        transform.setTranslationSnap(1);
+    } else {
+        transform.setTranslationSnap(null);
+    }
+}
+
 ['x', 'y', 'z'].forEach((axis) => {
     const input = document.getElementById(`pos-${axis}`);
     input.addEventListener('input', (e) => {
         const selected = selectionManager.getSelected();
         if (selected) {
-            updateObjectPosition(selected, axis, e.target.value);
+            history.record();
+            const value = snapEnabled ? Math.round(Number(e.target.value)) : e.target.value;
+            updateObjectPosition(selected, axis, value);
             requestRender();
         }
     });
@@ -77,14 +114,17 @@ const addButtons = {
 };
 
 addButtons[OBJECT_TYPES.BOX].addEventListener('click', () => {
+    history.record();
     addBox(scene);
     requestRender();
 });
 addButtons[OBJECT_TYPES.SPHERE].addEventListener('click', () => {
+    history.record();
     addSphere(scene);
     requestRender();
 });
 addButtons[OBJECT_TYPES.CYLINDER].addEventListener('click', () => {
+    history.record();
     addCylinder(scene);
     requestRender();
 });
@@ -93,6 +133,7 @@ document.getElementById('delete-btn').addEventListener('click', () => {
     const selected = selectionManager.getSelected();
     if (!selected) return;
     try {
+        history.record();
         transform.detach();
         scene.remove(selected);
         disposeObject(selected);
@@ -110,6 +151,7 @@ document.getElementById('delete-btn').addEventListener('click', () => {
 
 document.getElementById('clear-scene').addEventListener('click', () => {
     if (!confirm('Clear all objects?')) return;
+    history.record();
     selectionManager.deselect();
     const objects = [...getObjects()];
     objects.forEach((obj) => {
@@ -127,8 +169,12 @@ document.getElementById('load-scene').addEventListener('click', () => fileInput.
 fileInput.addEventListener('change', (e) => {
     const file = e.target.files[0];
     if (!file) return;
+    history.record();
     const reader = new FileReader();
-    reader.onload = (event) => importScene(event.target.result, scene, selectionManager);
+    reader.onload = (event) => {
+        importScene(event.target.result, scene, selectionManager);
+        requestRender();
+    };
     reader.onerror = () => alert('Failed to read the selected file.');
     reader.readAsText(file);
     fileInput.value = '';
@@ -141,6 +187,19 @@ window.addEventListener('keydown', (event) => {
         else transform.setMode('translate');
         requestRender();
     }
+});
+
+snapToggle.addEventListener('change', (e) => {
+    snapEnabled = e.target.checked;
+    applySnap();
+});
+
+undoBtn.addEventListener('click', () => {
+    history.undo();
+});
+
+redoBtn.addEventListener('click', () => {
+    history.redo();
 });
 
 requestRender();
