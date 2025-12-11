@@ -36,6 +36,15 @@
                 <p class="label">Selected: <span id="selected-id">None</span></p>
                 
                 <div class="control-group">
+                    <label>Transform Mode</label>
+                    <div class="button-grid three-col">
+                        <button id="mode-translate" class="mode-btn">Move</button>
+                        <button id="mode-rotate" class="mode-btn">Rotate</button>
+                        <button id="mode-scale" class="mode-btn">Scale</button>
+                    </div>
+                </div>
+
+                <div class="control-group">
                     <label>Position X</label>
                     <input type="number" id="pos-x" step="0.1">
                 </div>
@@ -47,6 +56,34 @@
                     <label>Position Z</label>
                     <input type="number" id="pos-z" step="0.1">
                 </div>
+
+                <div class="control-group">
+                    <label>Rotation X (deg)</label>
+                    <input type="number" id="rot-x" step="1">
+                </div>
+                <div class="control-group">
+                    <label>Rotation Y (deg)</label>
+                    <input type="number" id="rot-y" step="1">
+                </div>
+                <div class="control-group">
+                    <label>Rotation Z (deg)</label>
+                    <input type="number" id="rot-z" step="1">
+                </div>
+
+                <div class="control-group">
+                    <label>Scale X</label>
+                    <input type="number" id="scale-x" step="0.1" min="0.01">
+                </div>
+                <div class="control-group">
+                    <label>Scale Y</label>
+                    <input type="number" id="scale-y" step="0.1" min="0.01">
+                </div>
+                <div class="control-group">
+                    <label>Scale Z</label>
+                    <input type="number" id="scale-z" step="0.1" min="0.01">
+                </div>
+
+                <p class="label" id="dims-label"></p>
                 
                 <button id="delete-btn" class="danger-btn">Delete Object</button>
             </div>
@@ -60,6 +97,18 @@
                 <div class="control-group">
                     <label for="snap-toggle">Snap to Grid</label>
                     <input type="checkbox" id="snap-toggle">
+                </div>
+                <div class="control-group">
+                    <label for="snap-translate">Grid Snap (units)</label>
+                    <input type="number" id="snap-translate" min="0.01" step="0.25" value="1">
+                </div>
+                <div class="control-group">
+                    <label for="snap-rotate">Rotation Snap (deg)</label>
+                    <input type="number" id="snap-rotate" min="1" step="1" value="15">
+                </div>
+                <div class="control-group">
+                    <label for="snap-scale">Scale Snap</label>
+                    <input type="number" id="snap-scale" min="0.01" step="0.05" value="0.1">
                 </div>
                 <div class="button-grid two-col">
                     <button id="undo-btn">Undo</button>

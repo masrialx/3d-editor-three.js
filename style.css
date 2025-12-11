@@ -23,6 +23,7 @@ h3 { font-size: 0.9rem; color: #aaa; text-transform: uppercase; letter-spacing: 
 
 .button-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 5px; }
 .button-grid.two-col { grid-template-columns: 1fr 1fr; }
+.button-grid.three-col { grid-template-columns: repeat(3, 1fr); }
 
 button { background: var(--border); color: white; border: none; padding: 8px; cursor: pointer; border-radius: 3px; font-size: 0.85rem; transition: background 0.2s; width: 100%; margin-bottom: 5px; }
 button:hover { background: var(--accent); }
@@ -30,6 +31,8 @@ button.danger-btn { background: #5a2a2a; }
 button.danger-btn:hover { background: var(--danger); }
 
 .control-group { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; font-size: 0.85rem; }
-input[type="number"] { background: #3c3c3c; border: 1px solid #555; color: white; width: 60px; padding: 4px; border-radius: 2px; }
+input[type="number"] { background: #3c3c3c; border: 1px solid #555; color: white; width: 70px; padding: 4px; border-radius: 2px; }
+
+.mode-btn.active { background: var(--accent); }
 
 .instructions { font-size: 0.75rem; color: #888; margin-top: auto; }
